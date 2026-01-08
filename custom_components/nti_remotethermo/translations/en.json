@@ -1,0 +1,27 @@
+{
+  "title": "NTI RemoteThermo",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to NTI RemoteThermo",
+        "description": "Enter your client id and the cookie token (.AspNet.ApplicationCookie).",
+        "data": {
+          "client_id": "Client ID",
+          "token": "Cookie token"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "NTI RemoteThermo Options",
+        "description": "Configure paramIds and polling interval.",
+        "data": {
+          "param_ids": "Param IDs (comma-separated)",
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    }
+  }
+}
