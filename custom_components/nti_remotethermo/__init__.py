@@ -24,6 +24,22 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entry from an older version."""
+    if entry.version == 1:
+        _LOGGER.debug("Migrating config entry %s from version 1 to 2", entry.entry_id)
+        new_data = {**entry.data}
+        new_data.pop("token", None)
+        new_data.setdefault(CONF_EMAIL, "")
+        new_data.setdefault(CONF_PASSWORD, "")
+        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
+        _LOGGER.info(
+            "Config entry %s migrated to version 2; reauth will be required",
+            entry.entry_id,
+        )
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up NTI RemoteThermo from a config entry."""
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
