@@ -8,12 +8,14 @@ from homeassistant.core import HomeAssistant
 from .const import (
     BASE_URL,
     CONF_CLIENT_ID,
+    CONF_EMAIL,
     CONF_PARAM_IDS,
+    CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
-    CONF_TOKEN,
     DEFAULT_PARAM_IDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    LOGIN_PATH,
     PLATFORMS,
     REFRESH_PATH,
     normalize_param_ids,
@@ -32,7 +34,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     client_id = str(entry.data[CONF_CLIENT_ID]).strip()
-    token = str(entry.data[CONF_TOKEN]).strip()
+    email = str(entry.data[CONF_EMAIL]).strip()
+    password = str(entry.data[CONF_PASSWORD])
 
     param_ids = normalize_param_ids(
         entry.options.get(CONF_PARAM_IDS, DEFAULT_PARAM_IDS)
@@ -49,8 +52,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         session=session,
         base_url=BASE_URL,
         refresh_path=REFRESH_PATH,
+        login_path=LOGIN_PATH,
         client_id=client_id,
-        token=token,
+        email=email,
+        password=password,
     )
 
     coordinator = NtiRemoteThermoCoordinator(

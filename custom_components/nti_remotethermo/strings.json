@@ -4,22 +4,24 @@
     "step": {
       "user": {
         "title": "Connect to NTI RemoteThermo",
-        "description": "Enter your client id and the cookie token (.AspNet.ApplicationCookie).",
+        "description": "Enter your client ID and NTI RemoteThermo account credentials.",
         "data": {
           "client_id": "Client ID",
-          "token": "Cookie token"
+          "email": "Email",
+          "password": "Password"
         }
       },
       "reauth_confirm": {
         "title": "Re-authenticate NTI RemoteThermo",
-        "description": "Your cookie token has expired. Enter a new token to reconnect.",
+        "description": "Your session has expired. Enter your credentials to reconnect.",
         "data": {
-          "token": "Cookie token"
+          "email": "Email",
+          "password": "Password"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid authentication. Check your client ID and cookie token.",
+      "invalid_auth": "Invalid authentication. Check your email and password.",
       "cannot_connect": "Unable to connect to NTI RemoteThermo. Check your client ID and network.",
       "unknown": "An unexpected error occurred."
     },

@@ -14,7 +14,10 @@ PLATFORMS = [Platform.SENSOR]
 
 # Config entry data (set at initial setup)
 CONF_CLIENT_ID = "client_id"
-CONF_TOKEN = "token"
+CONF_EMAIL = "email"
+CONF_PASSWORD = "password"
+
+LOGIN_PATH = "/R2/Account/Login"
 
 # Options (editable after setup)
 CONF_PARAM_IDS = "param_ids"

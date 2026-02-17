@@ -6,6 +6,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
@@ -16,12 +17,14 @@ from .api import (
 from .const import (
     BASE_URL,
     CONF_CLIENT_ID,
+    CONF_EMAIL,
     CONF_PARAM_IDS,
+    CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
-    CONF_TOKEN,
     DEFAULT_PARAM_IDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    LOGIN_PATH,
     REFRESH_PATH,
     normalize_param_ids,
 )
@@ -32,17 +35,21 @@ _LOGGER = logging.getLogger(__name__)
 class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for NTI RemoteThermo."""
 
-    VERSION = 1
+    VERSION = 2
 
-    async def _test_credentials(self, client_id: str, token: str) -> str | None:
+    async def _test_credentials(
+        self, client_id: str, email: str, password: str
+    ) -> str | None:
         """Test credentials against the API. Returns error key or None on success."""
         session = async_get_clientsession(self.hass)
         client = NtiRemoteThermoApiClient(
             session=session,
             base_url=BASE_URL,
             refresh_path=REFRESH_PATH,
+            login_path=LOGIN_PATH,
             client_id=client_id,
-            token=token,
+            email=email,
+            password=password,
         )
         try:
             payload = await client.fetch(list(DEFAULT_PARAM_IDS[:1]))
@@ -65,9 +72,10 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             client_id = str(user_input[CONF_CLIENT_ID]).strip()
-            token = str(user_input[CONF_TOKEN]).strip()
+            email = str(user_input[CONF_EMAIL]).strip()
+            password = str(user_input[CONF_PASSWORD])
 
-            error = await self._test_credentials(client_id, token)
+            error = await self._test_credentials(client_id, email, password)
             if error:
                 errors["base"] = error
             else:
@@ -78,7 +86,8 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=f"NTI RemoteThermo ({client_id})",
                     data={
                         CONF_CLIENT_ID: client_id,
-                        CONF_TOKEN: token,
+                        CONF_EMAIL: email,
+                        CONF_PASSWORD: password,
                     },
                     options={
                         CONF_PARAM_IDS: list(DEFAULT_PARAM_IDS),
@@ -89,7 +98,12 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required(CONF_CLIENT_ID): str,
-                vol.Required(CONF_TOKEN): str,
+                vol.Required(CONF_EMAIL): str,
+                vol.Required(CONF_PASSWORD): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD
+                    )
+                ),
             }
         )
         return self.async_show_form(
@@ -97,7 +111,7 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(self, entry_data: dict) -> FlowResult:
-        """Handle re-authentication when the token expires."""
+        """Handle re-authentication when credentials expire."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(self, user_input=None) -> FlowResult:
@@ -109,22 +123,32 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.context["entry_id"]
             )
             client_id = str(entry.data[CONF_CLIENT_ID]).strip()
-            token = str(user_input[CONF_TOKEN]).strip()
+            email = str(user_input[CONF_EMAIL]).strip()
+            password = str(user_input[CONF_PASSWORD])
 
-            error = await self._test_credentials(client_id, token)
+            error = await self._test_credentials(client_id, email, password)
             if error:
                 errors["base"] = error
             else:
                 self.hass.config_entries.async_update_entry(
                     entry,
-                    data={**entry.data, CONF_TOKEN: token},
+                    data={
+                        **entry.data,
+                        CONF_EMAIL: email,
+                        CONF_PASSWORD: password,
+                    },
                 )
                 await self.hass.config_entries.async_reload(entry.entry_id)
                 return self.async_abort(reason="reauth_successful")
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_TOKEN): str,
+                vol.Required(CONF_EMAIL): str,
+                vol.Required(CONF_PASSWORD): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD
+                    )
+                ),
             }
         )
         return self.async_show_form(
