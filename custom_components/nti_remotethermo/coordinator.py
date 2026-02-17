@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -39,18 +40,14 @@ class NtiRemoteThermoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             update_interval=timedelta(seconds=scan_interval_s),
         )
 
-    def set_params(self, param_ids: list[str], scan_interval_s: int) -> None:
-        """Update parameters at runtime (used when options change)."""
-        self._param_ids = param_ids
-        self.update_interval = timedelta(seconds=scan_interval_s)
-
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:
             payload = await self._client.fetch(self._param_ids)
 
         except NtiRemoteThermoAuthError as err:
-            # Auth issues should be obvious in HA UI and logs
-            raise UpdateFailed(f"Authentication failed: {err}") from err
+            raise ConfigEntryAuthFailed(
+                f"Authentication failed: {err}"
+            ) from err
 
         except NtiRemoteThermoRateLimitError as err:
             raise UpdateFailed(f"Rate limited by server: {err}") from err

@@ -4,16 +4,38 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+
+# Map unit labels from the API to HA device classes and standard units.
+# Keys are lowercased for case-insensitive matching.
+UNIT_DEVICE_CLASS_MAP: dict[str, SensorDeviceClass] = {
+    "°c": SensorDeviceClass.TEMPERATURE,
+    "degc": SensorDeviceClass.TEMPERATURE,
+    "°f": SensorDeviceClass.TEMPERATURE,
+    "degf": SensorDeviceClass.TEMPERATURE,
+    "bar": SensorDeviceClass.PRESSURE,
+    "mbar": SensorDeviceClass.PRESSURE,
+    "psi": SensorDeviceClass.PRESSURE,
+    "kpa": SensorDeviceClass.PRESSURE,
+    "hpa": SensorDeviceClass.PRESSURE,
+    "%": SensorDeviceClass.POWER_FACTOR,
+    "kwh": SensorDeviceClass.ENERGY,
+    "kw": SensorDeviceClass.POWER,
+    "w": SensorDeviceClass.POWER,
+    "l/min": SensorDeviceClass.VOLUME_FLOW_RATE,
+    "m³/h": SensorDeviceClass.VOLUME_FLOW_RATE,
+}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -28,12 +50,19 @@ def _safe_label(item: dict[str, Any]) -> str:
     return str(item.get("id", "NTI Sensor"))
 
 
+def _device_class_from_unit(unit: str | None) -> SensorDeviceClass | None:
+    """Infer device class from the API unit label."""
+    if not unit or not isinstance(unit, str):
+        return None
+    return UNIT_DEVICE_CLASS_MAP.get(unit.strip().lower())
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    data = hass.data[DOMAIN][entry.entry_id]  # set in __init__.py
+    data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
     client_id: str = data["client_id"]
     param_ids: list[str] = data["param_ids"]
@@ -60,7 +89,17 @@ class NtiRemoteThermoParamSensor(CoordinatorEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
+        self._client_id = client_id
         self._attr_unique_id = f"{DOMAIN}_{client_id}_{description.param_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Group all sensors under a single device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._client_id)},
+            name=f"NTI RemoteThermo ({self._client_id})",
+            manufacturer="NTI",
+        )
 
     @property
     def _item(self) -> dict[str, Any] | None:
@@ -96,6 +135,19 @@ class NtiRemoteThermoParamSensor(CoordinatorEntity, SensorEntity):
         return None
 
     @property
+    def device_class(self) -> SensorDeviceClass | None:
+        """Infer device class from the unit label."""
+        return _device_class_from_unit(self.native_unit_of_measurement)
+
+    @property
+    def state_class(self) -> SensorStateClass | None:
+        """Only report MEASUREMENT for numeric values."""
+        value = self.native_value
+        if isinstance(value, (int, float)):
+            return SensorStateClass.MEASUREMENT
+        return None
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         item = self._item
         if not item:
@@ -109,7 +161,3 @@ class NtiRemoteThermoParamSensor(CoordinatorEntity, SensorEntity):
             "max": item.get("max"),
             "anyError": item.get("anyError"),
         }
-
-    @property
-    def state_class(self) -> SensorStateClass | None:
-        return SensorStateClass.MEASUREMENT

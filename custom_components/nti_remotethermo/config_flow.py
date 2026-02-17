@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import logging
+
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api import (
+    NtiRemoteThermoApiClient,
+    NtiRemoteThermoApiError,
+    NtiRemoteThermoAuthError,
+)
 from .const import (
+    BASE_URL,
     CONF_CLIENT_ID,
     CONF_PARAM_IDS,
     CONF_SCAN_INTERVAL,
@@ -13,7 +22,11 @@ from .const import (
     DEFAULT_PARAM_IDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    REFRESH_PATH,
+    normalize_param_ids,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -21,25 +34,57 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    async def _test_credentials(self, client_id: str, token: str) -> str | None:
+        """Test credentials against the API. Returns error key or None on success."""
+        session = async_get_clientsession(self.hass)
+        client = NtiRemoteThermoApiClient(
+            session=session,
+            base_url=BASE_URL,
+            refresh_path=REFRESH_PATH,
+            client_id=client_id,
+            token=token,
+        )
+        try:
+            payload = await client.fetch(list(DEFAULT_PARAM_IDS[:1]))
+        except NtiRemoteThermoAuthError:
+            return "invalid_auth"
+        except NtiRemoteThermoApiError:
+            return "cannot_connect"
+        except Exception:
+            _LOGGER.exception("Unexpected error during credential test")
+            return "unknown"
+
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            return "cannot_connect"
+
+        return None
+
     async def async_step_user(self, user_input=None) -> FlowResult:
+        """Handle the initial setup step."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
             client_id = str(user_input[CONF_CLIENT_ID]).strip()
             token = str(user_input[CONF_TOKEN]).strip()
 
-            await self.async_set_unique_id(client_id)
-            self._abort_if_unique_id_configured()
+            error = await self._test_credentials(client_id, token)
+            if error:
+                errors["base"] = error
+            else:
+                await self.async_set_unique_id(client_id)
+                self._abort_if_unique_id_configured()
 
-            return self.async_create_entry(
-                title=f"NTI RemoteThermo ({client_id})",
-                data={
-                    CONF_CLIENT_ID: client_id,
-                    CONF_TOKEN: token,
-                },
-                options={
-                    CONF_PARAM_IDS: DEFAULT_PARAM_IDS,
-                    CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
-                },
-            )
+                return self.async_create_entry(
+                    title=f"NTI RemoteThermo ({client_id})",
+                    data={
+                        CONF_CLIENT_ID: client_id,
+                        CONF_TOKEN: token,
+                    },
+                    options={
+                        CONF_PARAM_IDS: list(DEFAULT_PARAM_IDS),
+                        CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+                    },
+                )
 
         schema = vol.Schema(
             {
@@ -47,23 +92,62 @@ class NtiRemoteThermoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_TOKEN): str,
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema)
+        return self.async_show_form(
+            step_id="user", data_schema=schema, errors=errors
+        )
+
+    async def async_step_reauth(self, entry_data: dict) -> FlowResult:
+        """Handle re-authentication when the token expires."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None) -> FlowResult:
+        """Handle re-authentication confirmation."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            entry = self.hass.config_entries.async_get_entry(
+                self.context["entry_id"]
+            )
+            client_id = str(entry.data[CONF_CLIENT_ID]).strip()
+            token = str(user_input[CONF_TOKEN]).strip()
+
+            error = await self._test_credentials(client_id, token)
+            if error:
+                errors["base"] = error
+            else:
+                self.hass.config_entries.async_update_entry(
+                    entry,
+                    data={**entry.data, CONF_TOKEN: token},
+                )
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_abort(reason="reauth_successful")
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_TOKEN): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=schema, errors=errors
+        )
 
     @staticmethod
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return NtiRemoteThermoOptionsFlow(config_entry)
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> NtiRemoteThermoOptionsFlow:
+        """Get the options flow handler."""
+        return NtiRemoteThermoOptionsFlow()
 
 
 class NtiRemoteThermoOptionsFlow(config_entries.OptionsFlow):
     """Options flow for NTI RemoteThermo."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self._entry = config_entry
-
     async def async_step_init(self, user_input=None) -> FlowResult:
+        """Handle options step."""
         if user_input is not None:
-            raw = str(user_input.get(CONF_PARAM_IDS, ""))
-            param_ids = [p.strip() for p in raw.split(",") if p.strip()]
+            param_ids = normalize_param_ids(
+                user_input.get(CONF_PARAM_IDS, "")
+            )
 
             scan_interval = int(
                 user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -79,7 +163,9 @@ class NtiRemoteThermoOptionsFlow(config_entries.OptionsFlow):
                 },
             )
 
-        default_param_ids = self._entry.options.get(CONF_PARAM_IDS, DEFAULT_PARAM_IDS)
+        default_param_ids = self.config_entry.options.get(
+            CONF_PARAM_IDS, DEFAULT_PARAM_IDS
+        )
         if isinstance(default_param_ids, list):
             default_param_ids = ",".join(default_param_ids)
 
@@ -88,7 +174,7 @@ class NtiRemoteThermoOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_PARAM_IDS, default=default_param_ids): str,
                 vol.Optional(
                     CONF_SCAN_INTERVAL,
-                    default=self._entry.options.get(
+                    default=self.config_entry.options.get(
                         CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                     ),
                 ): vol.Coerce(int),
