@@ -18,6 +18,7 @@ from .const import (
     LOGIN_PATH,
     PLATFORMS,
     REFRESH_PATH,
+    SUBMIT_PATH,
     normalize_param_ids,
 )
 
@@ -63,12 +64,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if scan_interval < 5:
         scan_interval = 5
 
+    # Ensure setpoint param is always fetched for the number entity
+    if "T4_0_2" not in param_ids:
+        param_ids.append("T4_0_2")
+
     session = async_get_clientsession(hass)
     client = NtiRemoteThermoApiClient(
         session=session,
         base_url=BASE_URL,
         refresh_path=REFRESH_PATH,
         login_path=LOGIN_PATH,
+        submit_path=SUBMIT_PATH,
         client_id=client_id,
         email=email,
         password=password,
@@ -85,6 +91,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = {
         "client_id": client_id,
+        "client": client,
         "coordinator": coordinator,
         "param_ids": param_ids,
     }

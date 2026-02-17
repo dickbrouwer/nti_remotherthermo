@@ -40,12 +40,14 @@ class NtiRemoteThermoApiClient:
         client_id: str,
         email: str,
         password: str,
+        submit_path: str | None = None,
         timeout: int = 15,
     ) -> None:
         self._session = session
         self._base_url = base_url
         self._refresh_url = f"{base_url}{refresh_path}"
         self._login_url = f"{base_url}{login_path}"
+        self._submit_url = f"{base_url}{submit_path}" if submit_path else None
         self._client_id = client_id
         self._email = email
         self._password = password
@@ -288,6 +290,131 @@ class NtiRemoteThermoApiClient:
                 "NTI API client error (client_id=%s, url=%s): %s",
                 self._client_id,
                 self._refresh_url,
+                err,
+            )
+            raise NtiRemoteThermoApiError("HTTP client error") from err
+
+    async def submit(self, param_id: str, value: Any) -> dict[str, Any]:
+        """Submit a parameter value change.
+
+        Automatically handles authentication and retries once on auth errors.
+        """
+        token = await self._ensure_token()
+        try:
+            return await self._do_submit(param_id, value, token)
+        except NtiRemoteThermoAuthError:
+            _LOGGER.debug(
+                "Auth error during submit, refreshing token (client_id=%s)",
+                self._client_id,
+            )
+            token = await self._invalidate_and_refresh_token(token)
+            return await self._do_submit(param_id, value, token)
+
+    async def _do_submit(
+        self, param_id: str, value: Any, token: str
+    ) -> dict[str, Any]:
+        """Perform the actual HTTP POST to the Submit endpoint."""
+        if not self._submit_url:
+            raise NtiRemoteThermoApiError("Submit URL not configured")
+
+        url = f"{self._submit_url}/{self._client_id}"
+        params = {"userActivity": "SaveTechnicalMenu"}
+        cookies = {COOKIE_NAME: token}
+        payload = [{"id": param_id, "value": value}]
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json; charset=UTF-8",
+            "User-Agent": "HomeAssistant/nti_remotethermo",
+            "Ajax-Request": "json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://www.nti.remotethermo.com/",
+        }
+
+        try:
+            async with self._session.post(
+                url,
+                params=params,
+                json=payload,
+                headers=headers,
+                cookies=cookies,
+                timeout=self._timeout,
+            ) as resp:
+                if resp.status >= 400:
+                    body = ""
+                    try:
+                        body = await resp.text()
+                    except Exception:
+                        body = "<unable to read body>"
+
+                    body_snip = (
+                        body[:500].replace("\n", "\\n").replace("\r", "\\r")
+                    )
+                    _LOGGER.error(
+                        "NTI API HTTP error %s %s "
+                        "(client_id=%s, path=%s, body=%s)",
+                        resp.status,
+                        resp.reason,
+                        self._client_id,
+                        str(resp.url),
+                        body_snip,
+                    )
+
+                    if resp.status in (401, 403):
+                        raise NtiRemoteThermoAuthError(
+                            f"HTTP {resp.status} {resp.reason}"
+                        )
+                    if resp.status == 429:
+                        raise NtiRemoteThermoRateLimitError(
+                            f"HTTP 429 {resp.reason}"
+                        )
+                    if 500 <= resp.status <= 599:
+                        raise NtiRemoteThermoServerError(
+                            f"HTTP {resp.status} {resp.reason}"
+                        )
+                    raise NtiRemoteThermoApiError(
+                        f"HTTP {resp.status} {resp.reason}"
+                    )
+
+                try:
+                    return await resp.json()
+                except aiohttp.ContentTypeError as err:
+                    text = await resp.text()
+                    _LOGGER.error(
+                        "NTI API returned non-JSON response "
+                        "(client_id=%s, path=%s, body=%s)",
+                        self._client_id,
+                        str(resp.url),
+                        text[:500]
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r"),
+                    )
+                    raise NtiRemoteThermoApiError(
+                        "Non-JSON response"
+                    ) from err
+
+        except asyncio.TimeoutError as err:
+            _LOGGER.warning(
+                "NTI API request timed out (client_id=%s, url=%s)",
+                self._client_id,
+                url,
+            )
+            raise NtiRemoteThermoApiError("Request timed out") from err
+
+        except aiohttp.ClientConnectionError as err:
+            _LOGGER.warning(
+                "NTI API connection error (client_id=%s, url=%s): %s",
+                self._client_id,
+                url,
+                err,
+            )
+            raise NtiRemoteThermoApiError("Connection error") from err
+
+        except aiohttp.ClientError as err:
+            _LOGGER.warning(
+                "NTI API client error (client_id=%s, url=%s): %s",
+                self._client_id,
+                url,
                 err,
             )
             raise NtiRemoteThermoApiError("HTTP client error") from err

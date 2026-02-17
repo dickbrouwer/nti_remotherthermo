@@ -1,6 +1,6 @@
 # NTI RemoteThermo (Home Assistant)
 
-Custom Home Assistant integration for reading sensor values from **nti.remotethermo.com** via the `PlantMenu/Refresh` endpoint.
+Custom Home Assistant integration for reading sensor values and controlling setpoints on **nti.remotethermo.com**.
 
 ## Features
 
@@ -10,6 +10,7 @@ Custom Home Assistant integration for reading sensor values from **nti.remotethe
 - Re-authentication flow when credentials change
 - Options Flow: configure `paramIds` and polling interval
 - One Home Assistant sensor entity per `paramId`
+- Writable **Number entity** for Zone CH setpoint temperature (T4_0_2, 90–140°F)
 - Cloud polling via `DataUpdateCoordinator`
 
 ## Installation (HACS)

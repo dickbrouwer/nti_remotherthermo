@@ -8,9 +8,10 @@ DOMAIN = "nti_remotethermo"
 
 BASE_URL = "https://www.nti.remotethermo.com"
 REFRESH_PATH = "/R2/PlantMenu/Refresh"
+SUBMIT_PATH = "/R2/PlantMenu/Submit"
 COOKIE_NAME = ".AspNet.ApplicationCookie"
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.NUMBER]
 
 # Config entry data (set at initial setup)
 CONF_CLIENT_ID = "client_id"
