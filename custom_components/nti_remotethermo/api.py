@@ -12,6 +12,11 @@ from .const import COOKIE_NAME
 _LOGGER = logging.getLogger(__name__)
 
 
+def _join_url(base: str, path: str) -> str:
+    """URL normalization"""
+    return base.rstrip("/") + "/" + path.lstrip("/")
+
+
 class NtiRemoteThermoApiError(Exception):
     """Base exception for NTI API errors."""
 
@@ -45,9 +50,9 @@ class NtiRemoteThermoApiClient:
     ) -> None:
         self._session = session
         self._base_url = base_url
-        self._refresh_url = f"{base_url}{refresh_path}"
-        self._login_url = f"{base_url}{login_path}"
-        self._submit_url = f"{base_url}{submit_path}" if submit_path else None
+        self._refresh_url = _join_url(base_url, refresh_path)
+        self._login_url = _join_url(base_url, login_path)
+        self._submit_url = _join_url(base_url, submit_path) if submit_path else None
         self._client_id = client_id
         self._email = email
         self._password = password
